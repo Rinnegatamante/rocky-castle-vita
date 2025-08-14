@@ -13,6 +13,8 @@
 #include <zlib.h>
 #include <zip.h>
 
+#include "fios.h"
+
 #include <malloc.h>
 #include <stdio.h>
 #include <stdarg.h>
@@ -47,6 +49,8 @@
 #include <AL/alext.h>
 #include <AL/efx.h>
 
+#include "libc_bridge.h"
+
 #include "vorbis/vorbisfile.h"
 
 //#define ENABLE_DEBUG
@@ -66,14 +70,13 @@ static char data_path[256];
 static char fake_vm[0x1000];
 static char fake_env[0x1000];
 
-int framecap = 0;
-
 int file_exists(const char *path) {
 	SceIoStat stat;
 	return sceIoGetstat(path, &stat) >= 0;
 }
 
-int _newlib_heap_size_user = 256 * 1024 * 1024;
+int _newlib_heap_size_user = 200 * 1024 * 1024;
+unsigned int sceLibcHeapSize = 4 * 1024 * 1024;
 
 so_module main_mod, cpp_mod;
 
@@ -479,9 +482,9 @@ FILE *fopen_hook(char *fname, char *mode) {
 	if (strncmp(fname, "ux0:", 4)) {
 		sprintf(real_fname, "ux0:data/rocky/%s", fname);
 		dlog("fopen(%s,%s) patched\n", real_fname, mode);
-		f = fopen(real_fname, mode);
+		f = sceLibcBridge_fopen(real_fname, mode);
 	} else {
-		f = fopen(fname, mode);
+		f = sceLibcBridge_fopen(fname, mode);
 	}
 	return f;
 }
@@ -805,28 +808,26 @@ FILE *AAssetManager_open(void *mgr, const char *fname, int mode) {
 	char full_fname[256];
 	sprintf(full_fname, "ux0:data/rocky/%s", fname);
 	dlog("AAssetManager_open %s\n", full_fname);
-	return fopen(full_fname, "rb");
 }
 
 int AAsset_close(FILE *f) {
-	return fclose(f);
 }
 
 size_t AAsset_getLength(FILE *f) {
-	size_t p = ftell(f);
-	fseek(f, 0, SEEK_END);
-	size_t res = ftell(f);
-	fseek(f, p, SEEK_SET);
+	size_t p = sceLibcBridge_ftell(f);
+	sceLibcBridge_fseek(f, 0, SEEK_END);
+	size_t res = sceLibcBridge_ftell(f);
+	sceLibcBridge_fseek(f, p, SEEK_SET);
 	return res;
 }
 
 size_t AAsset_read(FILE *f, void *buf, size_t count) {
-	return fread(buf, 1, count, f);
+	return sceLibcBridge_fread(buf, 1, count, f);
 }
 
 size_t AAsset_seek(FILE *f, size_t offs, int whence) {
-	fseek(f, offs, whence);
-	return ftell(f);
+	sceLibcBridge_fseek(f, offs, whence);
+	return sceLibcBridge_ftell(f);
 }
 
 int rmdir_hook(const char *pathname) {
@@ -1036,6 +1037,14 @@ int __vsnprintf_chk(char *s, size_t maxlen, int flag, size_t slen, const char *f
 
 void *malloc_hook(size_t sz) {
 	return memalign(16, sz);
+}
+
+int sceLibcBridge_fseeko(FILE *stream, off_t offset, int origin) {
+	return sceLibcBridge_fseek(stream, offset, origin);
+}
+
+off_t sceLibcBridge_ftello(FILE *stream) {
+	return ftell(stream);
 }
 
 static so_default_dynlib default_dynlib[] = {
@@ -1268,41 +1277,41 @@ static so_default_dynlib default_dynlib[] = {
 	{ "exp2", (uintptr_t)&exp2 },
 	{ "expf", (uintptr_t)&expf },
 	{ "fabsf", (uintptr_t)&fabsf },
-	{ "fclose", (uintptr_t)&fclose },
+	{ "fclose", (uintptr_t)&sceLibcBridge_fclose },
 	{ "fcntl", (uintptr_t)&ret0 },
 	{ "mktime", (uintptr_t)&mktime },
 	// { "fdopen", (uintptr_t)&fdopen },
-	{ "feof", (uintptr_t)&feof },
-	{ "ferror", (uintptr_t)&ferror },
+	{ "feof", (uintptr_t)&sceLibcBridge_feof },
+	{ "ferror", (uintptr_t)&sceLibcBridge_ferror },
 	{ "fflush", (uintptr_t)&ret0 },
-	{ "fgetc", (uintptr_t)&fgetc },
-	{ "fgets", (uintptr_t)&fgets },
+	{ "fgetc", (uintptr_t)&sceLibcBridge_fgetc },
+	{ "fgets", (uintptr_t)&sceLibcBridge_fgets },
 	{ "floor", (uintptr_t)&floor },
-	{ "fileno", (uintptr_t)&fileno },
+	//{ "fileno", (uintptr_t)&fileno },
 	{ "floorf", (uintptr_t)&floorf },
 	{ "fmod", (uintptr_t)&fmod },
 	{ "fmodf", (uintptr_t)&fmodf },
-	{ "funopen", (uintptr_t)&funopen },
+	//{ "funopen", (uintptr_t)&funopen },
 	{ "fopen", (uintptr_t)&fopen_hook },
 	{ "gmtime", (uintptr_t)&gmtime },
 	{ "open", (uintptr_t)&open_hook },
-	{ "fprintf", (uintptr_t)&fprintf },
-	{ "fputc", (uintptr_t)&ret0 },
+	{ "fprintf", (uintptr_t)&sceLibcBridge_fprintf },
+	{ "fputc", (uintptr_t)&sceLibcBridge_fputc },
 	// { "fputwc", (uintptr_t)&fputwc },
-	{ "fputs", (uintptr_t)&ret0 },
-	{ "fread", (uintptr_t)&fread },
+	{ "fputs", (uintptr_t)&sceLibcBridge_fputs },
+	{ "fread", (uintptr_t)&sceLibcBridge_fread },
 	{ "free", (uintptr_t)&free },
 	{ "frexp", (uintptr_t)&frexp },
 	{ "frexpf", (uintptr_t)&frexpf },
-	{ "fscanf", (uintptr_t)&fscanf },
-	{ "fseek", (uintptr_t)&fseek },
-	{ "fseeko", (uintptr_t)&fseeko },
-	{ "fstat", (uintptr_t)&fstat_hook },
-	{ "ftell", (uintptr_t)&ftell },
-	{ "ftello", (uintptr_t)&ftello },
+	//{ "fscanf", (uintptr_t)&fscanf },
+	{ "fseek", (uintptr_t)&sceLibcBridge_fseek },
+	{ "fseeko", (uintptr_t)&sceLibcBridge_fseeko },
+	//{ "fstat", (uintptr_t)&fstat_hook },
+	{ "ftell", (uintptr_t)&sceLibcBridge_ftell },
+	{ "ftello", (uintptr_t)&sceLibcBridge_ftello },
 	// { "ftruncate", (uintptr_t)&ftruncate },
-	{ "fwrite", (uintptr_t)&fwrite },
-	{ "getc", (uintptr_t)&getc },
+	{ "fwrite", (uintptr_t)&sceLibcBridge_fwrite },
+	{ "getc", (uintptr_t)&sceLibcBridge_getc },
 	{ "gettid", (uintptr_t)&ret0 },
 	{ "getpid", (uintptr_t)&ret0 },
 	{ "getcwd", (uintptr_t)&getcwd_hook },
@@ -1772,7 +1781,7 @@ Mix_Music *mus = NULL;
 char real_fname[256];
 
 int musicPlayerStart(void *this, char *fname, int unk, float vol, int unk2) {
-	sceClibPrintf("musicPlayerStart %s %d %f\n", fname, unk, vol);
+	dlog("musicPlayerStart %s %d %f\n", fname, unk, vol);
 	sprintf(real_fname, "ux0:data/rocky/%s", fname);
 	real_fname[strlen(real_fname) - 3] = 0;
 	strcat(real_fname, "ogg");
@@ -1987,7 +1996,6 @@ void patch_game(void) {
 	hook_addr(so_symbol(&main_mod, "_ZN11NetworkNode3runEj"), (uintptr_t)ret0);
 	
 	hook_addr(so_symbol(&main_mod, "NVThreadGetCurrentJNIEnv"), (uintptr_t)GetCurrentJNIEnv);
-	
 }
 
 enum {
@@ -2054,6 +2062,8 @@ void *pthread_main(void *arg) {
 	int (* nativeRender) () = (void *)so_symbol(&main_mod, "Java_com_istomgames_engine_GameRenderer_nativeRender");
 	int (* nativeResize) (void *env, void *obj, int w, int h) = (void *)so_symbol(&main_mod, "Java_com_istomgames_engine_GameRenderer_nativeResize");
 	int (* nativeTouch) (void *env, void *obj, int id, int action, float x, float y, int zero) = (void *)so_symbol(&main_mod, "Java_com_istomgames_engine_GameSurfaceView_nativeTouch");
+
+	sceClibPrintf("fios_init %x\n", fios_init("ux0:data/rocky"));
 
 	sceIoMkdir("ux0:data/rocky/cloud", 0777);
 
@@ -2155,17 +2165,6 @@ void *pthread_main(void *arg) {
 	return NULL;
 }
 
-int get_urandom(int *this) {
-	FILE *f = fopen("ux0:data/urandom.txt", "w");
-	for (int i = 0; i < 1024; i++) {
-		uint32_t r = rand();
-		fwrite(f, 1, 4, &r);
-	}
-	fclose(f);
-	*this = open("ux0:data/urandom.txt", O_RDONLY, 0777);
-	return this;
-}
-
 int main(int argc, char *argv[]) {
 	SceAppUtilInitParam init_param;
 	SceAppUtilBootParam boot_param;
@@ -2183,7 +2182,7 @@ int main(int argc, char *argv[]) {
 	scePowerSetBusClockFrequency(222);
 	scePowerSetGpuClockFrequency(222);
 	scePowerSetGpuXbarClockFrequency(166);
-
+	
 	if (check_kubridge() < 0)
 		fatal_error("Error kubridge.skprx is not installed.");
 
@@ -2204,7 +2203,7 @@ int main(int argc, char *argv[]) {
 	
 	sceClibPrintf("Loading libgame\n");
 	sprintf(fname, "%s/libgame.so", data_path);
-	if (so_file_load(&main_mod, fname, LOAD_ADDRESS + 0x01000000) < 0)
+	if (so_file_load(&main_mod, fname, LOAD_ADDRESS) < 0)
 		fatal_error("Error could not load %s.", fname);
 	so_relocate(&main_mod);
 	so_resolve(&main_mod, default_dynlib, sizeof(default_dynlib), 0);
