@@ -1589,6 +1589,26 @@ int GetStaticMethodID(void *env, void *class, const char *name, const char *sig)
 	return UNKNOWN;
 }
 
+#define NUM_CLOUD_VALS (910)
+char cloud_vals[NUM_CLOUD_VALS][64];
+int write_idx = 1;
+int read_idx = 0;
+int first_read = 1;
+
+static inline __attribute__((always_inline)) void cloudSetValue(const char *val) {
+	strcpy(cloud_vals[write_idx], val);
+	write_idx = (write_idx + 1) % NUM_CLOUD_VALS;
+}
+
+static inline __attribute__((always_inline)) void cloudGetValue(const char *out) {
+	strcpy(out, cloud_vals[read_idx]);
+	read_idx = (read_idx + 1) % NUM_CLOUD_VALS;
+	if (!read_idx && first_read) {
+		first_read = 0;
+		read_idx++;
+	}
+}
+
 void CallStaticVoidMethodV(void *env, void *obj, int methodID, uintptr_t *args) {
 	char fname[256], tmp[256], type[32], item[32], name[32];
 	char *arg = (char *)args[0];
@@ -1596,22 +1616,7 @@ void CallStaticVoidMethodV(void *env, void *obj, int methodID, uintptr_t *args) 
 	switch (methodID) {
 	case CLOUD_SET_VALUE:
 		dlog("cloudSetValue %s\n", args[0]);
-		if (arg[0] == 'n') { // nebulus10
-			strcpy(fname, "ux0:data/rocky/cloud/nebulus10");
-		} else {
-			sscanf(args[0], "%[^.].%[^.].%s", type, item, name);
-			sprintf(fname, "ux0:data/rocky/cloud/%s/%s/%s", type, item, name);
-		}
-		f = sceLibcBridge_fopen(fname, "wb");
-		if (!f) {
-			sprintf(tmp, "ux0:data/rocky/cloud/%s/", type);
-			sceIoMkdir(tmp, 0777);
-			strcat(tmp, item);
-			sceIoMkdir(tmp, 0777);
-			f = sceLibcBridge_fopen(fname, "wb");
-		}
-		sceLibcBridge_fwrite(args[1], 1, strlen(args[1]), f);
-		sceLibcBridge_fclose(f);
+		cloudSetValue(args[1]);
 		break;
 	default:
 		break;
@@ -1737,28 +1742,15 @@ void GetStringUTFRegion(void *env, char *str, size_t start, size_t len, char *bu
 	buf[len] = 0;
 }
 
-char cloud_ret[1024];
+char cloud_ret[1024] = {};
 void *CallStaticObjectMethodV(void *env, void *obj, int methodID, uintptr_t *args) {
 	char fname[256], tmp[256], type[32], item[32], name[32];
 	char *arg = (char *)args[0];
 	FILE *f;
 	switch (methodID) {
 	case CLOUD_GET_VALUE:
-		dlog("cloudGetValue %s\n", args[0]);
-		if (arg[0] == 'n') { // nebulus10
-			strcpy(fname, "ux0:data/rocky/cloud/nebulus10");
-		} else {
-			sscanf(args[0], "%[^.].%[^.].%s", type, item, name);
-			sprintf(fname, "ux0:data/rocky/cloud/%s/%s/%s", type, item, name);
-		}
-		f = sceLibcBridge_fopen(fname, "rb");
-		if (f) {
-			sceClibMemset(cloud_ret, 0, 1024);
-			sceLibcBridge_fread(cloud_ret, 1, 1024, f);
-			sceLibcBridge_fclose(f);
-			return cloud_ret;
-		}
-		return NULL;
+		cloudGetValue(cloud_ret);
+		return cloud_ret;
 	default:
 		return NULL;
 	}
@@ -1850,6 +1842,10 @@ void patch_game(void) {
 	hook_addr(so_symbol(&main_mod, "_ZN16CJavaMusicPlayer4StopEv"), (uintptr_t)musicPlayerStop);
 	hook_addr(so_symbol(&main_mod, "_ZN16CJavaMusicPlayer9SetVolumeEf"), (uintptr_t)musicPlayerSetVolume);
 	hook_addr(so_symbol(&main_mod, "_ZN16CJavaMusicPlayer9GetVolumeEv"), (uintptr_t)musicPlayerGetVolume);
+	
+	
+	hook_addr(so_symbol(&main_mod, "_ZN4Data17PropertyContainer9loadCloudEb"), (uintptr_t)ret0);
+	hook_addr(so_symbol(&main_mod, "_ZN4Data17PropertyContainer9saveCloudEb"), (uintptr_t)ret0);
 	
 	hook_addr(so_symbol(&main_mod, "_Z15iap_IsPurchasedPKc"), (uintptr_t)ret1);
 
