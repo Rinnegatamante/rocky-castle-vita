@@ -476,6 +476,8 @@ void throw_exc(char **str, void *a, int b) {
 }
 
 FILE *fopen_hook(char *fname, char *mode) {
+	if (mode[0] == 'w' && mode[1] == 't')
+		return NULL;
 	FILE *f;
 	char real_fname[256];
 	dlog("fopen(%s,%s)\n", fname, mode);
@@ -808,9 +810,11 @@ FILE *AAssetManager_open(void *mgr, const char *fname, int mode) {
 	char full_fname[256];
 	sprintf(full_fname, "ux0:data/rocky/%s", fname);
 	dlog("AAssetManager_open %s\n", full_fname);
+	return sceLibcBridge_fopen(full_fname, "rb");
 }
 
 int AAsset_close(FILE *f) {
+	return sceLibcBridge_fclose(f);
 }
 
 size_t AAsset_getLength(FILE *f) {
@@ -1586,14 +1590,28 @@ int GetStaticMethodID(void *env, void *class, const char *name, const char *sig)
 }
 
 void CallStaticVoidMethodV(void *env, void *obj, int methodID, uintptr_t *args) {
-	char fname[256];
+	char fname[256], tmp[256], type[32], item[32], name[32];
+	char *arg = (char *)args[0];
 	FILE *f;
 	switch (methodID) {
 	case CLOUD_SET_VALUE:
-		sprintf(fname, "ux0:data/rocky/cloud/%s", args[0]);
-		f = fopen(fname, "wb");
-		fwrite(args[1], 1, strlen(args[1]), f);
-		fclose(f);
+		dlog("cloudSetValue %s\n", args[0]);
+		if (arg[0] == 'n') { // nebulus10
+			strcpy(fname, "ux0:data/rocky/cloud/nebulus10");
+		} else {
+			sscanf(args[0], "%[^.].%[^.].%s", type, item, name);
+			sprintf(fname, "ux0:data/rocky/cloud/%s/%s/%s", type, item, name);
+		}
+		f = sceLibcBridge_fopen(fname, "wb");
+		if (!f) {
+			sprintf(tmp, "ux0:data/rocky/cloud/%s/", type);
+			sceIoMkdir(tmp, 0777);
+			strcat(tmp, item);
+			sceIoMkdir(tmp, 0777);
+			f = sceLibcBridge_fopen(fname, "wb");
+		}
+		sceLibcBridge_fwrite(args[1], 1, strlen(args[1]), f);
+		sceLibcBridge_fclose(f);
 		break;
 	default:
 		break;
@@ -1721,17 +1739,23 @@ void GetStringUTFRegion(void *env, char *str, size_t start, size_t len, char *bu
 
 char cloud_ret[1024];
 void *CallStaticObjectMethodV(void *env, void *obj, int methodID, uintptr_t *args) {
-	char fname[256];
+	char fname[256], tmp[256], type[32], item[32], name[32];
+	char *arg = (char *)args[0];
 	FILE *f;
 	switch (methodID) {
 	case CLOUD_GET_VALUE:
-		sceClibPrintf("cloudGetValue %s\n", args[0]);
-		sprintf(fname, "ux0:data/rocky/cloud/%s", args[0]);
-		f = fopen(fname, "rb");
+		dlog("cloudGetValue %s\n", args[0]);
+		if (arg[0] == 'n') { // nebulus10
+			strcpy(fname, "ux0:data/rocky/cloud/nebulus10");
+		} else {
+			sscanf(args[0], "%[^.].%[^.].%s", type, item, name);
+			sprintf(fname, "ux0:data/rocky/cloud/%s/%s/%s", type, item, name);
+		}
+		f = sceLibcBridge_fopen(fname, "rb");
 		if (f) {
 			sceClibMemset(cloud_ret, 0, 1024);
-			fread(cloud_ret, 1, 1024, f);
-			fclose(f);
+			sceLibcBridge_fread(cloud_ret, 1, 1024, f);
+			sceLibcBridge_fclose(f);
 			return cloud_ret;
 		}
 		return NULL;
