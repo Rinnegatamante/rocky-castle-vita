@@ -15,6 +15,12 @@ By doing so, it's basically as if we emulate a minimalist Android environment in
 
 ## Changelog
 
+### v1.1
+
+- Move to sceLibc for I/O operations: faster loading times.
+- Suppress cloud implementation: faster loading times.
+- Make so that cached memory is not used for storing framebuffers and textures: greatly improves framerate.
+
 ### v1.0
 
 - Initial Release.
